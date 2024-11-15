@@ -1,7 +1,32 @@
+import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI  # Import for ChatOpenAI
 from langchain.prompts import PromptTemplate  # Import for PromptTemplate
 from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Literal
+import smtplib
+from email.mime.text import MIMEText
+
+
+class CurrentPost(BaseModel):
+    id: str
+    title: str
+    html: str
+    plaintext: str
+    authors: list[dict[Literal["id", "name", "email"], str]]
+    tags: list[dict[Literal["id", "name"], str]]
+
+    class Config:
+        extra = "allow"
+
+
+class WebhookResponse(BaseModel):
+    post: dict[str, dict[Literal["current"], CurrentPost]]
+
+    class Config:
+        extra = "allow"
+
 
 load_dotenv()
 # Load the API key from the environment variables
@@ -19,24 +44,29 @@ email_feedback_prompt = PromptTemplate(
         "Format the response as:\n"
         "Strengths:\n- (Point 1)\n- (Point 2)\n\n"
         "Improvement Areas:\n- (Point 1)\n- (Point 2)"
-    )
+    ),
 )
 
 # Set up the LLMChain for generating feedback
 feedback_chain = email_feedback_prompt | llm
 
+
 # Define a function to generate the feedback content
-def generate_feedback_email(author_name, article_content, previous_post_topic):
+def generate_feedback_email(
+    author_name: str, article_content: str, previous_post_topic: str
+) -> tuple[str, str]:
     # Run the model chain to analyze the article and get feedback
-    analysis = feedback_chain.invoke({
-        "author_name": author_name,
-        "article_content": article_content,
-        "previous_post_topic": previous_post_topic
-    }).content
+    analysis = feedback_chain.invoke(
+        {
+            "author_name": author_name,
+            "article_content": article_content,
+            "previous_post_topic": previous_post_topic,
+        }
+    ).content
 
     # Format the output into a professional email
+    subject = f"Subject: Feedback on Your Recent Post on {previous_post_topic}"
     email_feedback = f"""
-    Subject: Feedback on Your Recent Post on {previous_post_topic}
 
     Hi {author_name},
 
@@ -53,7 +83,8 @@ def generate_feedback_email(author_name, article_content, previous_post_topic):
     Best regards,
     The Ghost Editorial Team
     """
-    return email_feedback
+    return subject, email_feedback
+
 
 # Define the evaluation prompt template
 evaluation_prompt = PromptTemplate(
@@ -72,35 +103,71 @@ evaluation_prompt = PromptTemplate(
         "- Formatting: (Clear/Unclear)\n"
         "- Overall Rating: (Excellent/Good/Fair/Poor)\n"
         "- Summary: (Brief explanation of your assessment)"
-    )
+    ),
 )
 
 # Initialize an LLMChain for the evaluation process
 evaluation_chain = evaluation_prompt | llm
 
+
 # Function to evaluate the generated feedback email
 def evaluate_feedback_email(feedback_email):
     # Run the evaluation chain
-    evaluation = evaluation_chain.invoke({
-        "feedback_email": feedback_email
-    }).content
+    evaluation = evaluation_chain.invoke({"feedback_email": feedback_email}).content
 
     return evaluation
 
 
+def send_email(subject: str, contents: str, receiver_email: str):
+    sender_email = os.getenv("EMAIL_ADDRESS")
+    sender_password = os.getenv("EMAIL_PASSWORD")
+
+    message = MIMEText(contents)
+    message["Subject"] = subject
+    message["From"] = sender_email
+    message["To"] = receiver_email
+
+    # Set up the SMTP server
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp_server:
+        smtp_server.login(sender_email, sender_password)
+        smtp_server.sendmail(sender_email, receiver_email, message.as_string())
+
+    print("Email sent successfully!")
+
+
 app = FastAPI()
+
 
 @app.get("/")
 def read_root():
     return "Hello World"
 
-@app.post('/post_tagged')
-def post_tagged(response: dict):
-    print(response)
-    return response
+
+@app.post("/post_tagged")
+def post_tagged(response: WebhookResponse):
+    to_review = False
+    if response["post"]["current"]["tags"]:
+        tags = response["post"]["current"]["tags"]
+        for tag in tags:
+            if tag["name"] == "review":
+                to_review = True
+                break
+
+    if not to_review:
+        return
+
+    subject, contents = generate_feedback_email(
+        response["post"]["current"]["authors"][0]["name"],
+        response["post"]["current"]["plaintext"],
+        response["post"]["current"]["title"],
+    )
+
+    print("Generated Feedback Email:\n", subject, contents)
+
+    send_email(subject, contents, response["post"]["current"]["authors"][0]["email"])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example input
     author_name = "Alice"
     previous_post_topic = "AI Transforming Healthcare"
@@ -109,12 +176,14 @@ if __name__ == '__main__':
     [Insert more detailed synthetic article content with some strengths and intentional weaknesses for analysis]
     """
     # Run the feedback generation step to get a sample email
-    feedback_email = generate_feedback_email(author_name, article_text, previous_post_topic)
-    print("Generated Feedback Email:\n", feedback_email)
+    subject, feedback_email = generate_feedback_email(
+        author_name, article_text, previous_post_topic
+    )
+    print("Generated Feedback Email:\n", subject, feedback_email)
 
-    print('###########################')
-    print('###########################')
-    print('###########################')
+    print("###########################")
+    print("###########################")
+    print("###########################")
 
     # Evaluate the feedback email
     evaluation_result = evaluate_feedback_email(feedback_email)
