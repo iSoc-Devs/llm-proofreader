@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI  # Import for ChatOpenAI
 from langchain.prompts import PromptTemplate  # Import for PromptTemplate
+from fastapi import FastAPI
 
 load_dotenv()
 # Load the API key from the environment variables
@@ -20,9 +21,6 @@ email_feedback_prompt = PromptTemplate(
         "Improvement Areas:\n- (Point 1)\n- (Point 2)"
     )
 )
-
-# Initialize the language model
-llm = ChatOpenAI(temperature=0.7, model="gpt-3.5-turbo")
 
 # Set up the LLMChain for generating feedback
 feedback_chain = email_feedback_prompt | llm
@@ -57,18 +55,6 @@ def generate_feedback_email(author_name, article_content, previous_post_topic):
     """
     return email_feedback
 
-# Example input
-author_name = "Alice"
-previous_post_topic = "AI Transforming Healthcare"
-article_text = """
-Artificial intelligence is an exciting field. Its application in healthcare, for instance, helps to predict outcomes...
-[Insert more detailed synthetic article content with some strengths and intentional weaknesses for analysis]
-"""
-
-# Code below is now done later
-# feedback_email = generate_feedback_email(author_name, article_text, previous_post_topic)
-# print(feedback_email)
-
 # Define the evaluation prompt template
 evaluation_prompt = PromptTemplate(
     input_variables=["feedback_email"],
@@ -101,14 +87,35 @@ def evaluate_feedback_email(feedback_email):
 
     return evaluation
 
-# Run the feedback generation step to get a sample email
-feedback_email = generate_feedback_email(author_name, article_text, previous_post_topic)
-print("Generated Feedback Email:\n", feedback_email)
 
-print('###########################')
-print('###########################')
-print('###########################')
+app = FastAPI()
 
-# Evaluate the feedback email
-evaluation_result = evaluate_feedback_email(feedback_email)
-print("\nEvaluation of the Feedback Email:\n", evaluation_result)
+@app.get("/")
+def read_root():
+    return "Hello World"
+
+@app.post('/post_tagged')
+def post_tagged(response: dict):
+    print(response)
+    return response
+
+
+if __name__ == '__main__':
+    # Example input
+    author_name = "Alice"
+    previous_post_topic = "AI Transforming Healthcare"
+    article_text = """
+    Artificial intelligence is an exciting field. Its application in healthcare, for instance, helps to predict outcomes...
+    [Insert more detailed synthetic article content with some strengths and intentional weaknesses for analysis]
+    """
+    # Run the feedback generation step to get a sample email
+    feedback_email = generate_feedback_email(author_name, article_text, previous_post_topic)
+    print("Generated Feedback Email:\n", feedback_email)
+
+    print('###########################')
+    print('###########################')
+    print('###########################')
+
+    # Evaluate the feedback email
+    evaluation_result = evaluate_feedback_email(feedback_email)
+    print("\nEvaluation of the Feedback Email:\n", evaluation_result)
