@@ -4,9 +4,30 @@ from langchain_openai import ChatOpenAI  # Import for ChatOpenAI
 from langchain.prompts import PromptTemplate  # Import for PromptTemplate
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Literal
+from typing import Optional
 import smtplib
 from email.mime.text import MIMEText
+
+
+class Author(BaseModel):
+    id: str
+    name: str
+    email: str
+    slug: Optional[str] = None
+    profile_image: Optional[str] = None
+    cover_image: Optional[str] = None
+    bio: Optional[str] = None
+    website: Optional[str] = None
+    location: Optional[str] = None
+
+
+class Tag(BaseModel):
+    id: str
+    name: str
+    slug: Optional[str] = None
+    visibility: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class CurrentPost(BaseModel):
@@ -14,15 +35,22 @@ class CurrentPost(BaseModel):
     title: str
     html: str
     plaintext: str
-    authors: list[dict[Literal["id", "name", "email"], str]]
-    tags: list[dict[Literal["id", "name"], str]]
+    authors: list[Author]
+    tags: list[Tag]
 
     class Config:
         extra = "allow"
 
 
+class PostData(BaseModel):
+    current: CurrentPost
+    previous: Optional[dict] = (
+        None  # Allow flexibility if `previous` has a dynamic structure
+    )
+
+
 class WebhookResponse(BaseModel):
-    post: dict[str, dict[Literal["current"], CurrentPost]]
+    post: PostData
 
     class Config:
         extra = "allow"
@@ -132,7 +160,7 @@ def send_email(subject: str, contents: str, receiver_email: str):
         smtp_server.login(sender_email, sender_password)
         smtp_server.sendmail(sender_email, receiver_email, message.as_string())
 
-    print("Email sent successfully!")
+    return "Email sent successfully!"
 
 
 app = FastAPI()
@@ -146,25 +174,25 @@ def read_root():
 @app.post("/post_tagged")
 def post_tagged(response: WebhookResponse):
     to_review = False
-    if response["post"]["current"]["tags"]:
-        tags = response["post"]["current"]["tags"]
-        for tag in tags:
-            if tag["name"] == "review":
+    if response.post.current.tags:
+        for tag in response.post.current.tags:
+            if tag.name == "#review":
                 to_review = True
                 break
 
     if not to_review:
-        return
+        return {"message": "No review tag found"}
 
     subject, contents = generate_feedback_email(
-        response["post"]["current"]["authors"][0]["name"],
-        response["post"]["current"]["plaintext"],
-        response["post"]["current"]["title"],
+        response.post.current.authors[0].name,
+        response.post.current.plaintext,
+        response.post.current.title,
     )
 
     print("Generated Feedback Email:\n", subject, contents)
 
-    send_email(subject, contents, response["post"]["current"]["authors"][0]["email"])
+    send_email(subject, contents, response.post.current.authors[0].email)
+    return {"message": "Email sent"}
 
 
 if __name__ == "__main__":
