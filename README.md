@@ -25,6 +25,15 @@ Afterwards, install all the requirements.
 pip install -r requirements.txt
 ```
 
+Make a `.env` file from `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Fill the `.env` with valid values.
+
+
 Run the `main.py` file:
 
 ```bash
